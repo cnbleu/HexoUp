@@ -9,7 +9,7 @@ MD5Utils
 
 __author__ = 'Gordon'
 
-_DEBUG = True
+_DEBUG = False
 
 
 def md5_file(fpath):
