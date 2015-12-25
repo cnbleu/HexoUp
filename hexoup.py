@@ -268,7 +268,7 @@ def need_modify_document(fpath):
         return False
 
     # 读取 hash 文件, 如果文件不存在, 则是初次使用
-    hash_file = path.join(_work_path, '.hash')
+    hash_file = path.join(_temp_path, '.hash')
     if not path.exists(hash_file):
         return True
     else:
