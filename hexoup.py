@@ -15,16 +15,22 @@ import time
 import ConfigParser
 from cn.bleu.utils import MD5Utils
 
-_TITLE = 'title: '  # 标题
-_DATE = 'date: '  # 日期
-_UPDATE_DATE = 'updated: '  # 更新日期
-_CATEGORIES = 'categories: '  # 分类
-_END = '---' + '\n\n'
+_DEBUG = True
+_WORK_DIR = '.work'
+_WORK_HASH = '.hash'
+
+_CONTENT_TITLE = 'title: '  # 标题
+_CONTENT_DATE = 'date: '  # 日期
+_CONTENT_UPDATE_DATE = 'updated: '  # 更新日期
+_CONTENT_CATEGORIES = 'categories: \n'  # 分类
+_CONTENT_TAGS = 'tag: \n'  # 分类
+_CONTENT_END = '---' + '\n\n'
+
+_FILE_CATEGORIES = '.categories'  # 保存默认分类的文件
+_FILE_TAGS = '.tags'  # 保存默认标签的文件
+_FILE_IGNORE = '.ignore'  # 忽略当前文件夹
 
 _DATE_FORMATER = '%Y-%m-%d %H:%M:%S'
-
-_DEBUG = True
-_TEMP_DIR = '.work'
 
 _username = ''
 _server = ''
@@ -35,7 +41,7 @@ _temp_path = ''
 _hash_file = ''
 _hash = {}
 
-_documents_pending_upload = []  # 待上传的文件
+_documents_pending = []  # 待上传的文件
 
 
 # interface
@@ -61,10 +67,6 @@ def app_main():
     if not files:
         return
     else:
-        # 3. 准备工作目录
-        _temp_path = _work_path + path.sep + _TEMP_DIR
-        if not path.exists(_temp_path):
-            os.mkdir(_temp_path)
         # 遍历目录或文档
         for fp in files:
             # 4. 处理文档
@@ -82,12 +84,12 @@ def init_hash():
     global _hash_file
     global _hash
 
-    _hash_file = path.join(_work_path, '.hash')
+    _hash_file = path.join(_temp_path, _WORK_HASH)
 
     if not path.exists(_hash_file):
         with open(_hash_file, 'w') as fp:
             fp.write('[hash]\n')
-        _log('[hash] hash file created.')
+        _log('[哈希校验] 初始化哈希环境.')
     else:
         with open(_hash_file, 'r') as fp:
             config = ConfigParser.ConfigParser()
@@ -96,7 +98,7 @@ def init_hash():
             for key in ks:
                 _hash[key[0]] = key[1]
 
-        _log('[hash] env has inited.')
+        _log('[哈希校验] 文件哈希值读取成功.')
 
 
 def init_config():
@@ -106,16 +108,17 @@ def init_config():
     """
 
     global _work_path
+    global _temp_path
     global _remote_path
     global _username
     global _server
 
     config = ConfigParser.ConfigParser()
     upath = os.path.expanduser('~')
-    _log('[config] user path: %s' % upath)
+    _log('[初始化] 用户目录: %s' % upath)
 
     u_config_path = path.join(upath, '.hexoup', 'hexoup.cfg')
-    _log('[config] config file path: %s' % u_config_path)
+    _log('[初始化] 配置文件目录: %s' % u_config_path)
 
     if not path.exists(u_config_path):
         p = path.join(upath, '.hexoup')
@@ -131,13 +134,18 @@ def init_config():
 
             upath = config.get('path', 'locale').strip()
             rpath = config.get('path', 'remote').strip()
-            print '[config] name: %s, server: %s, locale path: %s, remote path: %s' % (
+            print '[初始化] name: %s, server: %s, locale path: %s, remote path: %s' % (
                 uname, userver, upath, rpath)
 
             _username = uname
             _server = userver
             _work_path = path.abspath(upath)
             _remote_path = rpath
+
+    # 准备工作目录
+    _temp_path = path.join(_work_path, _WORK_DIR)
+    if not path.exists(_temp_path):
+        os.mkdir(_temp_path)
 
 
 def save_default_config(config_path):
@@ -239,13 +247,13 @@ def handle_work_files(fpath):
                 # 如果是目录, 就继续搜索
                 handle_work_files(fp)
             elif has_document(fp) and need_modify_document(fp):
-                _log('[分析] 找到文档: %s' % fp)
+                _log('[文档分析] 找到文档: %s' % fp[(_work_path.__len__() + 1):])
                 # 记录 hash 值
                 write_document_hash(fp)
                 # 生成临时文档
                 modify_document(fp)
             else:
-                print '[分析] 跳过文档: %s' % fp
+                print '[文档分析] 跳过文档: %s' % fp[(_work_path.__len__() + 1):]
 
 
 def need_modify_document(fpath):
@@ -254,6 +262,10 @@ def need_modify_document(fpath):
     :param fpath:
     :return: True, 需要修改
     """
+    # 如果当前文件夹存在.ignore文件, 则忽略当前文件夹
+    if path.exists(path.join(path.dirname(fpath), _FILE_IGNORE)):
+        _log('[文档分析] 文档需要被忽略, 文件名: %s' % path.basename(fpath))
+        return False
 
     # 读取 hash 文件, 如果文件不存在, 则是初次使用
     hash_file = path.join(_work_path, '.hash')
@@ -313,20 +325,21 @@ def modify_document(fpath):
     :return:
     """
     global _temp_path
-    global _documents_pending_upload
+    global _documents_pending
 
-    title_str = _TITLE
+    content_title = _CONTENT_TITLE
     file_path = path.abspath(fpath)
     with open(file_path, 'r') as df:
         for line in df:
             if line.startswith('#'):
-                title_str += line[(line.find('#') + 1):].strip()
+                content_title += line[(line.find('#') + 1):].strip()
                 break
 
-    title_str += '\n'
-    date_str = _DATE + time.strftime(_DATE_FORMATER, time.localtime()) + '\n'
-    cat_str = _CATEGORIES + get_categories_by_file(fpath) + '\n'
-    update_str = ''
+    content_title += '\n'
+    content_create_date = _CONTENT_DATE + time.strftime(_DATE_FORMATER, time.localtime()) + '\n'
+    content_update_date = ''
+    content_categories = _CONTENT_CATEGORIES
+    content_tags = _CONTENT_TAGS
 
     temp_file_path = path.join(_temp_path, "".join(file_path[(_work_path.__len__() + 1):].split()))
 
@@ -338,32 +351,98 @@ def modify_document(fpath):
                 if line.startswith('---'):
                     break
                 else:
-                    if line.startswith(_TITLE):
-                        title_str = line
-                    elif line.startswith(_DATE):
-                        date_str = line
-                    elif line.startswith(_CATEGORIES):
-                        cat_str = line
-        # 补充更新时间
-        update_str = _UPDATE_DATE + time.strftime(_DATE_FORMATER, time.localtime()) + '\n'
+                    if line.startswith(_CONTENT_TITLE):
+                        content_title = line
+                    elif line.startswith(_CONTENT_DATE):
+                        content_create_date = line
 
+        # 临时文件已存在, 则需要保持创建日期不变, 更新更新时间
+        content_update_date = _CONTENT_UPDATE_DATE + time.strftime(_DATE_FORMATER, time.localtime()) + '\n'
     elif not path.exists(path.dirname(temp_file_path)):
         os.makedirs(path.dirname(temp_file_path))
 
-    with open(temp_file_path, 'w') as df:
-        df.write(title_str)
-        df.write(date_str)
-        if update_str:
-            df.write(update_str)
+    # 构造分类
+    # categories = find_categories_by_path(fpath)
+    # if categories:
+    #     for cate in categories:
+    #         content_categories += ('- ' + cate + '\n')
+    #     content_categories += '\n'
 
-        df.write(cat_str)
-        df.write(_END)
+    # 构造标签
+    tags = find_tags_by_path(fpath)
+    if tags:
+        for tag in tags:
+            content_tags += ('- ' + tag + '\n')
+        content_tags += '\n'
+
+    with open(temp_file_path, 'w') as df:
+        # 写入标题
+        df.write(content_title)
+        # 写入创建时间
+        df.write(content_create_date)
+        # 写入更新时间
+        if content_update_date:
+            df.write(content_update_date)
+        # 写入分类
+        if content_categories != _CONTENT_CATEGORIES:
+            df.write(content_categories)
+        # 写入标签
+        if content_tags != _CONTENT_TAGS:
+            df.write(content_tags)
+        # 写入结束符
+        df.write(_CONTENT_END)
 
         with open(file_path, 'r') as ff:
             for line in ff.readlines():
                 df.write(line)
+    # 记录待上传文件
+    _documents_pending.append(temp_file_path)
 
-    _documents_pending_upload.append(temp_file_path)
+
+def find_categories_by_path(fp):
+    """
+    根据文件路径获取预设的分类
+    :param fp:
+    :return:
+    """
+    categories = find_meta_by_path(fp)
+    categories.append(path.basename(path.dirname(fp)))
+    return categories
+
+
+def find_tags_by_path(fp):
+    """
+    根据文件路径获取预设的标签
+    :param fp:
+    :return:
+    """
+
+    return find_meta_by_path(fp, _FILE_TAGS)
+
+
+def find_meta_by_path(fp, meta=_FILE_CATEGORIES):
+    """
+    根据文件路径获取预设的数值
+    :param fp:
+    :param meta: 指定的文件类型
+    :return: [], 数值列表
+    """
+
+    metas = []
+    fpath = path.dirname(fp)
+    while True:
+        if fpath == _work_path:
+            break
+
+        if path.isdir(fpath):
+            for f in os.listdir(fpath):
+                if path.basename(f) == meta:
+                    with open(path.join(fpath, f), 'r') as cf:
+                        for line in cf.readlines():
+                            metas.append(line)
+            fpath = path.dirname(fpath)
+
+    return metas
 
 
 def get_categories_by_file(f):
@@ -383,13 +462,13 @@ def upload_documents():
     上传博客文件到服务端
     :return:
     """
-    global _documents_pending_upload
+    global _documents_pending
 
-    if _documents_pending_upload:
-        for fp in _documents_pending_upload:
+    if _documents_pending:
+        for fp in _documents_pending:
             upload_document_single(fp)
     else:
-        _log('[upload] No documents to upload')
+        _log('[上传文档] 没有符合条件的文档')
 
 
 def upload_document_single(fpath):
@@ -418,12 +497,12 @@ def execute_upload_to_server(fp):
     global _remote_path
 
     fname = path.basename(fp)
-    print '[scp] upload document to server, title: %s' % fname
     path_to = path.join(_remote_path, fname)
     # path_to = r'~/temp/%s' % path.basename(fp)
     path_from = fp
 
     system('scp %s %s@%s:%s' % (path_from, _username, _server, path_to))
+    print '[>>>>>>>] 文档已上传: %s' % fname
 
 
 def _log(msg):
