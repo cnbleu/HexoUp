@@ -19,9 +19,9 @@ _DEBUG = True
 _WORK_DIR = '.work'
 _WORK_HASH = '.hash'
 
-_CONTENT_TITLE = 'title: '  # 标题
-_CONTENT_DATE = 'date: '  # 日期
-_CONTENT_UPDATE_DATE = 'updated: '  # 更新日期
+_CONTENT_TITLE = 'title: %s\n'  # 标题
+_CONTENT_DATE = 'date: %s\n'  # 日期
+_CONTENT_UPDATE_DATE = 'updated: %s\n'  # 更新日期
 _CONTENT_CATEGORIES = 'categories: \n'  # 分类
 _CONTENT_TAGS = 'tag: \n'  # 分类
 _CONTENT_END = '---' + '\n\n'
@@ -70,10 +70,9 @@ def app_main():
         # 遍历目录或文档
         for fp in files:
             # 4. 处理文档
-            handle_work_files(fp)
-
-            # 5. 上传文件到服务器
-            upload_documents()
+            process_documents(fp)
+        # 5. 上传文件到服务器
+        upload_documents()
 
 
 def init_hash():
@@ -234,9 +233,9 @@ def has_document_in_folder(fpath):
     return has
 
 
-def handle_work_files(fpath):
+def process_documents(fpath):
     """
-    处理目标文件夹
+    处理目标目标文档
     :param fpath:
     :return:
     """
@@ -245,7 +244,7 @@ def handle_work_files(fpath):
             fp = path.join(fpath, fp)
             if path.isdir(fp):
                 # 如果是目录, 就继续搜索
-                handle_work_files(fp)
+                process_documents(fp)
             elif has_document(fp) and need_modify_document(fp):
                 _log('[文档分析] 找到文档: %s' % fp[(_work_path.__len__() + 1):])
                 # 记录 hash 值
@@ -327,21 +326,19 @@ def modify_document(fpath):
     global _temp_path
     global _documents_pending
 
-    content_title = _CONTENT_TITLE
-    file_path = path.abspath(fpath)
-    with open(file_path, 'r') as df:
-        for line in df:
-            if line.startswith('#'):
-                content_title += line[(line.find('#') + 1):].strip()
-                break
-
-    content_title += '\n'
-    content_create_date = _CONTENT_DATE + time.strftime(_DATE_FORMATER, time.localtime()) + '\n'
+    # 文章标题
+    content_title = _CONTENT_TITLE % path.basename(fpath)
+    # 文章创建日期
+    content_create_date = ''
+    # 文章更新日期
     content_update_date = ''
+    # 文章分类
     content_categories = _CONTENT_CATEGORIES
+    # 文章标签
     content_tags = _CONTENT_TAGS
 
-    temp_file_path = path.join(_temp_path, "".join(file_path[(_work_path.__len__() + 1):].split()))
+    # 临时文件
+    temp_file_path = path.join(_temp_path, "".join(fpath[(_work_path.__len__() + 1):].split()))
 
     # 临时文件已经存在, 需要更新该临时文件
     if path.exists(temp_file_path):
@@ -357,10 +354,15 @@ def modify_document(fpath):
                         content_create_date = line
 
         # 临时文件已存在, 则需要保持创建日期不变, 更新更新时间
-        content_update_date = _CONTENT_UPDATE_DATE + time.strftime(_DATE_FORMATER, time.localtime()) + '\n'
+        content_update_date = _CONTENT_UPDATE_DATE % time.strftime(_DATE_FORMATER, time.localtime())
     elif not path.exists(path.dirname(temp_file_path)):
         os.makedirs(path.dirname(temp_file_path))
 
+    # 如果不存在创建日期, 则初始化
+    if not content_create_date:
+        content_create_date = _CONTENT_DATE % time.strftime(_DATE_FORMATER, time.localtime())
+
+    # TODO next主题似乎对分类的支持不是特别好,暂时屏蔽分类功能
     # 构造分类
     # categories = find_categories_by_path(fpath)
     # if categories:
@@ -392,9 +394,10 @@ def modify_document(fpath):
         # 写入结束符
         df.write(_CONTENT_END)
 
-        with open(file_path, 'r') as ff:
+        with open(fpath, 'r') as ff:
             for line in ff.readlines():
                 df.write(line)
+
     # 记录待上传文件
     _documents_pending.append(temp_file_path)
 
