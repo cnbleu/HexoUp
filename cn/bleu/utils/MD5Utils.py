@@ -62,5 +62,4 @@ def _log(msg):
 
 
 if __name__ == '__main__':
-    md5_file('/Users/gordon/work/darling/python/HexoUp/hexoup.py')
     md5_string('hello, world')

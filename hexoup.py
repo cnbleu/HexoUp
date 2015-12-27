@@ -327,7 +327,7 @@ def modify_document(fpath):
     global _documents_pending
 
     # 文章标题
-    content_title = _CONTENT_TITLE % path.basename(fpath)
+    content_title = _CONTENT_TITLE % path.splitext(path.basename(fpath))[0]
     # 文章创建日期
     content_create_date = ''
     # 文章更新日期
